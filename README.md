@@ -70,8 +70,8 @@ GOOS=darwin  GOARCH=arm64 go build -o mc-motd .
 
 ### 协议说明
 
-- **Java 版**：VarInt 握手包 + Status Request → 接收 JSON 状态响应。协议版本号固定填 767，仅用于查询。
-- **基岩版**：`0x01` Unconnected Ping + 时间戳 + magic + GUID → 解析 pong 的分号分隔字段。
+- **Java 版**：先查 `_minecraft._tcp.<host>` 的 SRV 记录，命中则用 SRV 的 target:port（未手动指定端口时）；再发 VarInt 握手包 + Status Request → 接收 JSON 状态响应。协议版本号固定填 767，仅用于查询。
+- **基岩版**：不查 SRV，直接发 `0x01` Unconnected Ping + 时间戳 + magic + GUID → 解析 pong 的分号分隔字段。
 
 ### 协议
 

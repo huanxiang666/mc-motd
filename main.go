@@ -277,6 +277,26 @@ func (b *BedrockStatus) Summary() string {
 
 // ============================ 主流程 ============================
 
+// resolveJavaHost 解析 Java 版服务器地址：先查 _minecraft._tcp.<host> 的 SRV 记录，
+// 有则用 SRV 的 target:port；无则按普通 A 记录解析域名。返回 (host, port, 是否命中SRV)。
+func resolveJavaHost(host string, defaultPort int) (string, int, bool, error) {
+	if net.ParseIP(host) != nil {
+		return host, defaultPort, false, nil
+	}
+	// 查 SRV 记录（Minecraft Java 版约定）
+	_, addrs, err := net.LookupSRV("minecraft", "tcp", host)
+	if err == nil && len(addrs) > 0 {
+		target := strings.TrimSuffix(addrs[0].Target, ".")
+		return target, int(addrs[0].Port), true, nil
+	}
+	// 无 SRV，按 A 记录解析
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return "", 0, false, err
+	}
+	return ips[0], defaultPort, false, nil
+}
+
 func resolveHost(host string) (string, error) {
 	if net.ParseIP(host) != nil {
 		return host, nil
@@ -358,13 +378,13 @@ func main() {
 		os.Exit(2)
 	}
 
-	ip, err := resolveHost(host)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[失败] 无法解析 %s: %v\n", host, err)
-		os.Exit(1)
-	}
-
 	if edition == "be" {
+		// 基岩版：不查 SRV，直连
+		ip, err := resolveHost(host)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[失败] 无法解析 %s: %v\n", host, err)
+			os.Exit(1)
+		}
 		p := port
 		if p == 0 {
 			p = defaultBEPort
@@ -381,11 +401,20 @@ func main() {
 			fmt.Println(st.Summary())
 		}
 	} else {
+		// Java 版：先查 SRV 记录（_minecraft._tcp），未指定端口时 SRV 优先
+		target, srvPort, hitSRV, err := resolveJavaHost(host, defaultJavaPort)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[失败] 无法解析 %s: %v\n", host, err)
+			os.Exit(1)
+		}
 		p := port
 		if p == 0 {
-			p = defaultJavaPort
+			p = srvPort
 		}
-		raw, err := QueryJava(ip, p, timeout)
+		if hitSRV {
+			fmt.Fprintf(os.Stderr, "[SRV] %s -> %s:%d\n", host, target, srvPort)
+		}
+		raw, err := QueryJava(target, p, timeout)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[失败] %v\n", err)
 			os.Exit(1)
